@@ -1734,3 +1734,4 @@ Building: npm error gyp ERR! node-gyp -v v11.4.2
 Building: npm error gyp ERR! not ok
 Building: npm error A complete log of this run can be found in: /vercel/.npm/_logs/2026-02-01T05_05_38_798Z-debug-0.log
 Building: Error: Command "npm install" exited with 1
+Error: Command "npm install" exited with 1
