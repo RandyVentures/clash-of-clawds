@@ -1,10 +1,10 @@
 // Clash of Clawds API Server
 const express = require('express');
 const cors = require('cors');
-const Database = require('better-sqlite3');
 const path = require('path');
 const { nanoid } = require('nanoid');
 const game = require('../lib/game');
+const ServerlessDB = require('../db/serverless-db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,10 +14,8 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Database connection
-const dbPath = path.join(__dirname, '..', 'db', 'game.db');
-const db = new Database(dbPath);
-db.pragma('foreign_keys = ON');
+// Database connection (serverless-compatible)
+const db = new ServerlessDB();
 
 // Simple auth middleware (just agent name for MVP)
 function authMiddleware(req, res, next) {
