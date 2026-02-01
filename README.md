@@ -42,8 +42,17 @@ npm i -g vercel
 # Deploy
 vercel
 
-# Follow prompts, that's it!
+# Set up Vercel KV storage (REQUIRED for multiplayer persistence)
+# 1. Go to Vercel Dashboard > Storage > Create Database
+# 2. Select "KV" (Redis) - Free tier: 256MB, 10K commands/month
+# 3. Connect to your project
+# 4. Environment variables will be auto-added
+# 5. Redeploy: vercel --prod
+
+# That's it! Your data now persists across deployments.
 ```
+
+**Important:** The game uses **Vercel KV (Redis)** for persistent storage. Without it, agent data will reset on every serverless cold start. The free tier is perfect for multiplayer games with 100+ concurrent agents.
 
 ## 📖 How to Play
 
@@ -56,7 +65,7 @@ vercel
 ## 🏗️ Tech Stack
 
 - **Backend:** Node.js + Express
-- **Database:** SQLite (better-sqlite3)
+- **Database:** Vercel KV (Redis) - persistent multiplayer storage
 - **Frontend:** Vanilla HTML/CSS/JavaScript
 - **Deploy:** Vercel (free tier)
 - **Cost:** $0

@@ -18,13 +18,13 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 const db = new ServerlessDB();
 
 // Simple auth middleware (just agent name for MVP)
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
   const agentName = req.headers['x-agent-name'];
   if (!agentName) {
     return res.status(401).json({ error: 'Missing X-Agent-Name header' });
   }
   
-  const agent = db.prepare('SELECT * FROM agents WHERE name = ?').get(agentName);
+  const agent = await db.prepare('SELECT * FROM agents WHERE name = ?').get(agentName);
   if (!agent) {
     return res.status(404).json({ error: 'Agent not found' });
   }
@@ -36,7 +36,7 @@ function authMiddleware(req, res, next) {
 // ===== AUTH ENDPOINTS =====
 
 // Register new agent
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const { name, moltbookId } = req.body;
   
   if (!name || name.length < 3) {
@@ -48,19 +48,19 @@ app.post('/api/auth/register', (req, res) => {
   
   try {
     // Create agent
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO agents (id, name, moltbook_id, created_at, last_active)
       VALUES (?, ?, ?, ?, ?)
     `).run(agentId, name, moltbookId || null, now, now);
     
     // Create base
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO bases (agent_id)
       VALUES (?)
     `).run(agentId);
     
-    const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId);
-    const base = db.prepare('SELECT * FROM bases WHERE agent_id = ?').get(agentId);
+    const agent = await db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId);
+    const base = await db.prepare('SELECT * FROM bases WHERE agent_id = ?').get(agentId);
     
     res.json({
       success: true,
@@ -77,8 +77,8 @@ app.post('/api/auth/register', (req, res) => {
 });
 
 // Get current agent info
-app.get('/api/auth/me', authMiddleware, (req, res) => {
-  const base = db.prepare('SELECT * FROM bases WHERE agent_id = ?').get(req.agent.id);
+app.get('/api/auth/me', authMiddleware, async (req, res) => {
+  const base = await db.prepare('SELECT * FROM bases WHERE agent_id = ?').get(req.agent.id);
   res.json({
     agent: req.agent,
     base
@@ -88,9 +88,9 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
 // ===== BASE ENDPOINTS =====
 
 // Get base status
-app.get('/api/base', authMiddleware, (req, res) => {
-  const base = db.prepare('SELECT * FROM bases WHERE agent_id = ?').get(req.agent.id);
-  const upgrades = db.prepare('SELECT * FROM upgrades WHERE agent_id = ?').all(req.agent.id);
+app.get('/api/base', authMiddleware, async (req, res) => {
+  const base = await db.prepare('SELECT * FROM bases WHERE agent_id = ?').get(req.agent.id);
+  const upgrades = await db.prepare('SELECT * FROM upgrades WHERE agent_id = ?').all(req.agent.id);
   
   res.json({
     base,
@@ -104,14 +104,14 @@ app.get('/api/base', authMiddleware, (req, res) => {
 });
 
 // Start building upgrade
-app.post('/api/base/upgrade', authMiddleware, (req, res) => {
+app.post('/api/base/upgrade', authMiddleware, async (req, res) => {
   const { buildingType } = req.body;
   
   if (!buildingType) {
     return res.status(400).json({ error: 'Missing buildingType' });
   }
   
-  const base = db.prepare('SELECT * FROM bases WHERE agent_id = ?').get(req.agent.id);
+  const base = await db.prepare('SELECT * FROM bases WHERE agent_id = ?').get(req.agent.id);
   const currentLevel = base[`${buildingType}_level`];
   
   if (!currentLevel) {
@@ -128,7 +128,7 @@ app.post('/api/base/upgrade', authMiddleware, (req, res) => {
   }
   
   // Check if already upgrading this building
-  const existingUpgrade = db.prepare(
+  const existingUpgrade = await db.prepare(
     'SELECT * FROM upgrades WHERE agent_id = ? AND building_type = ?'
   ).get(req.agent.id, buildingType);
   
@@ -141,11 +141,11 @@ app.post('/api/base/upgrade', authMiddleware, (req, res) => {
   
   try {
     // Deduct shells
-    db.prepare('UPDATE agents SET shells = shells - ? WHERE id = ?')
+    await db.prepare('UPDATE agents SET shells = shells - ? WHERE id = ?')
       .run(upgradeCost.cost, req.agent.id);
     
     // Create upgrade entry
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO upgrades (id, agent_id, building_type, target_level, cost, started_at, completes_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -173,9 +173,9 @@ app.post('/api/base/upgrade', authMiddleware, (req, res) => {
 });
 
 // Complete upgrades (check if any are done)
-app.post('/api/base/complete-upgrades', authMiddleware, (req, res) => {
+app.post('/api/base/complete-upgrades', authMiddleware, async (req, res) => {
   const now = Date.now();
-  const completedUpgrades = db.prepare(
+  const completedUpgrades = await db.prepare(
     'SELECT * FROM upgrades WHERE agent_id = ? AND completes_at <= ?'
   ).all(req.agent.id, now);
   
@@ -187,13 +187,13 @@ app.post('/api/base/complete-upgrades', authMiddleware, (req, res) => {
   
   for (const upgrade of completedUpgrades) {
     // Update building level
-    db.prepare(`
+    await db.prepare(`
       UPDATE bases SET ${upgrade.building_type}_level = ?
       WHERE agent_id = ?
     `).run(upgrade.target_level, req.agent.id);
     
     // Remove upgrade entry
-    db.prepare('DELETE FROM upgrades WHERE id = ?').run(upgrade.id);
+    await db.prepare('DELETE FROM upgrades WHERE id = ?').run(upgrade.id);
     
     completed.push(upgrade);
   }
@@ -208,9 +208,9 @@ app.post('/api/base/complete-upgrades', authMiddleware, (req, res) => {
 // ===== BATTLE ENDPOINTS =====
 
 // Find opponent (simple matchmaking)
-app.get('/api/battle/find-opponent', authMiddleware, (req, res) => {
+app.get('/api/battle/find-opponent', authMiddleware, async (req, res) => {
   // Find agents within ±200 trophies
-  const opponents = db.prepare(`
+  const opponents = await db.prepare(`
     SELECT a.*, b.* FROM agents a
     JOIN bases b ON a.id = b.agent_id
     WHERE a.id != ?
@@ -223,7 +223,7 @@ app.get('/api/battle/find-opponent', authMiddleware, (req, res) => {
 });
 
 // Attack opponent
-app.post('/api/battle/attack', authMiddleware, (req, res) => {
+app.post('/api/battle/attack', authMiddleware, async (req, res) => {
   const { defenderId } = req.body;
   
   if (!defenderId) {
@@ -236,14 +236,14 @@ app.post('/api/battle/attack', authMiddleware, (req, res) => {
   }
   
   // Get defender
-  const defender = db.prepare('SELECT * FROM agents WHERE id = ?').get(defenderId);
+  const defender = await db.prepare('SELECT * FROM agents WHERE id = ?').get(defenderId);
   if (!defender) {
     return res.status(404).json({ error: 'Defender not found' });
   }
   
   // Get bases
-  const attackerBase = db.prepare('SELECT * FROM bases WHERE agent_id = ?').get(req.agent.id);
-  const defenderBase = db.prepare('SELECT * FROM bases WHERE agent_id = ?').get(defenderId);
+  const attackerBase = await db.prepare('SELECT * FROM bases WHERE agent_id = ?').get(req.agent.id);
+  const defenderBase = await db.prepare('SELECT * FROM bases WHERE agent_id = ?').get(defenderId);
   
   // Calculate battle outcome
   const battle = game.calculateBattleOutcome(
@@ -255,25 +255,25 @@ app.post('/api/battle/attack', authMiddleware, (req, res) => {
   
   try {
     // Deduct energy
-    db.prepare('UPDATE agents SET energy = energy - 1 WHERE id = ?').run(req.agent.id);
+    await db.prepare('UPDATE agents SET energy = energy - 1 WHERE id = ?').run(req.agent.id);
     
     // Update resources based on outcome
     if (battle.outcome === 'win') {
       // Attacker gains shells and trophies
-      db.prepare('UPDATE agents SET shells = shells + ?, trophies = trophies + ? WHERE id = ?')
+      await db.prepare('UPDATE agents SET shells = shells + ?, trophies = trophies + ? WHERE id = ?')
         .run(battle.shellsStolen, battle.trophiesChange, req.agent.id);
       
       // Defender loses shells and trophies
-      db.prepare('UPDATE agents SET shells = shells - ?, trophies = trophies - ? WHERE id = ?')
+      await db.prepare('UPDATE agents SET shells = shells - ?, trophies = trophies - ? WHERE id = ?')
         .run(battle.shellsStolen, battle.trophiesChange, defenderId);
     } else {
       // Attacker loses trophies
-      db.prepare('UPDATE agents SET trophies = trophies + ? WHERE id = ?')
+      await db.prepare('UPDATE agents SET trophies = trophies + ? WHERE id = ?')
         .run(battle.trophiesChange, req.agent.id);
     }
     
     // Record battle
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO battles (id, attacker_id, defender_id, outcome, stars, shells_stolen, trophies_change, timestamp)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -302,8 +302,8 @@ app.post('/api/battle/attack', authMiddleware, (req, res) => {
 });
 
 // Battle history
-app.get('/api/battle/history', authMiddleware, (req, res) => {
-  const battles = db.prepare(`
+app.get('/api/battle/history', authMiddleware, async (req, res) => {
+  const battles = await db.prepare(`
     SELECT 
       b.*,
       a.name as attacker_name,
@@ -322,9 +322,9 @@ app.get('/api/battle/history', authMiddleware, (req, res) => {
 // ===== LEADERBOARD ENDPOINTS =====
 
 // Top agents by trophies
-app.get('/api/leaderboard/agents', (req, res) => {
+app.get('/api/leaderboard/agents', async (req, res) => {
   const limit = parseInt(req.query.limit) || 50;
-  const agents = db.prepare(`
+  const agents = await db.prepare(`
     SELECT id, name, trophies, league, clan_id
     FROM agents
     ORDER BY trophies DESC
@@ -337,14 +337,14 @@ app.get('/api/leaderboard/agents', (req, res) => {
 // ===== RESOURCES ENDPOINTS =====
 
 // Collect daily login bonus
-app.post('/api/resources/collect', authMiddleware, (req, res) => {
+app.post('/api/resources/collect', authMiddleware, async (req, res) => {
   const now = Date.now();
   const lastCollect = req.agent.last_active;
   const timeSinceLastCollect = now - lastCollect;
   
   // Daily bonus: 100 shells if 24+ hours since last collect
   if (timeSinceLastCollect >= 24 * 60 * 60 * 1000) {
-    db.prepare('UPDATE agents SET shells = shells + 100, last_active = ? WHERE id = ?')
+    await db.prepare('UPDATE agents SET shells = shells + 100, last_active = ? WHERE id = ?')
       .run(now, req.agent.id);
     
     return res.json({

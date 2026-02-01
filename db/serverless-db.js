@@ -1,36 +1,26 @@
-// Serverless-compatible database using IN-MEMORY storage
-// NOTE: This is for DEMO/TESTING only! Data resets on cold starts.
-// For production, use Vercel KV, Postgres, or external DB service.
+// Serverless-compatible database using Vercel KV (Redis)
+// Maintains the same prepare() API as before, but with persistent storage
 
-// Global in-memory store (persists across requests in same instance)
-let GLOBAL_DATA = {
-  agents: [],
-  bases: [],
-  buildings: [],
-  upgrades: [],
-  battles: []
-};
+const { kv } = require('@vercel/kv');
 
 class ServerlessDB {
   constructor() {
-    // Use shared global data store
-    this.data = GLOBAL_DATA;
+    this.kv = kv;
   }
 
   loadData() {
-    // Not needed - using in-memory store
-    return this.data;
+    // Not needed - data is in KV
+    return null;
   }
 
   saveData() {
-    // Data already in memory, no need to save
-    // In production, this would write to actual DB
+    // Not needed - data is auto-saved to KV
   }
 
   prepare(sql) {
     const self = this;
     return {
-      run(...params) {
+      async run(...params) {
         try {
           if (sql.includes('INSERT INTO agents')) {
             // Match real API schema: (id, name, moltbook_id, created_at, last_active)
@@ -47,8 +37,15 @@ class ServerlessDB {
               energy: 5,
               data: 0
             };
-            self.data.agents.push(agent);
-            self.saveData();
+            
+            // Store agent
+            await self.kv.hset(`agent:${agent.id}`, agent);
+            // Add to agents set and name index
+            await self.kv.sadd('agents:all', agent.id);
+            await self.kv.set(`agent:name:${agent.name}`, agent.id);
+            // Add to leaderboard (sorted set by trophies)
+            await self.kv.zadd('leaderboard', { score: agent.trophies, member: agent.id });
+            
             return { lastInsertRowid: agent.id, changes: 1 };
           }
           else if (sql.includes('INSERT INTO bases')) {
@@ -62,20 +59,25 @@ class ServerlessDB {
               lab_level: 1,
               reactor_level: 1
             };
-            self.data.bases.push(base);
-            self.saveData();
+            
+            await self.kv.hset(`base:${base.agent_id}`, base);
+            await self.kv.sadd('bases:all', base.agent_id);
+            
             return { lastInsertRowid: 1, changes: 1 };
           }
           else if (sql.includes('INSERT INTO buildings')) {
+            const buildingId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
             const building = {
-              id: self.data.buildings.length + 1,
+              id: buildingId,
               base_id: params[0],
               building_type: params[1],
               level: params[2] || 1
             };
-            self.data.buildings.push(building);
-            self.saveData();
-            return { lastInsertRowid: building.id };
+            
+            await self.kv.hset(`building:${buildingId}`, building);
+            await self.kv.sadd(`buildings:base:${building.base_id}`, buildingId);
+            
+            return { lastInsertRowid: buildingId };
           }
           else if (sql.includes('INSERT INTO upgrades')) {
             // (id, agent_id, building_type, target_level, cost, started_at, completes_at)
@@ -88,8 +90,10 @@ class ServerlessDB {
               started_at: params[5],
               completes_at: params[6]
             };
-            self.data.upgrades.push(upgrade);
-            self.saveData();
+            
+            await self.kv.hset(`upgrade:${upgrade.id}`, upgrade);
+            await self.kv.sadd(`upgrades:agent:${upgrade.agent_id}`, upgrade.id);
+            
             return { lastInsertRowid: upgrade.id, changes: 1 };
           }
           else if (sql.includes('INSERT INTO battles')) {
@@ -105,52 +109,90 @@ class ServerlessDB {
               trophies_change: params[6],
               timestamp: params[7]
             };
-            self.data.battles.push(battle);
-            self.saveData();
+            
+            await self.kv.hset(`battle:${battle.id}`, battle);
+            await self.kv.sadd(`battles:agent:${battle.attacker_id}`, battle.id);
+            await self.kv.sadd(`battles:agent:${battle.defender_id}`, battle.id);
+            // Add to sorted set by timestamp for history queries
+            await self.kv.zadd(`battles:timeline:${battle.attacker_id}`, { score: battle.timestamp, member: battle.id });
+            await self.kv.zadd(`battles:timeline:${battle.defender_id}`, { score: battle.timestamp, member: battle.id });
+            
             return { lastInsertRowid: battle.id, changes: 1 };
           }
           else if (sql.includes('UPDATE agents')) {
             const agentId = params[params.length - 1];
-            const agent = self.data.agents.find(a => a.id === agentId);
+            const agent = await self.kv.hgetall(`agent:${agentId}`);
+            
             if (agent) {
+              let updated = false;
+              
               // Handle dynamic updates
-              if (sql.includes('shells = shells -')) agent.shells -= params[0];
+              if (sql.includes('shells = shells -')) {
+                agent.shells = (parseInt(agent.shells) || 0) - params[0];
+                updated = true;
+              }
               else if (sql.includes('shells = shells +') && params.length === 3) {
-                agent.shells += params[0];
-                agent.trophies += params[1];
+                agent.shells = (parseInt(agent.shells) || 0) + params[0];
+                agent.trophies = (parseInt(agent.trophies) || 0) + params[1];
+                updated = true;
+                // Update leaderboard
+                await self.kv.zadd('leaderboard', { score: agent.trophies, member: agentId });
               }
               else if (sql.includes('shells = shells + 100')) {
-                agent.shells += 100;
+                agent.shells = (parseInt(agent.shells) || 0) + 100;
                 agent.last_active = params[0];
+                updated = true;
               }
-              if (sql.includes('energy = energy - 1')) agent.energy -= 1;
-              if (sql.includes('trophies = trophies +') && params.length === 2) agent.trophies += params[0];
-              if (sql.includes('trophies = trophies -')) agent.trophies -= params[0];
-              self.saveData();
+              
+              if (sql.includes('energy = energy - 1')) {
+                agent.energy = (parseInt(agent.energy) || 0) - 1;
+                updated = true;
+              }
+              
+              if (sql.includes('trophies = trophies +') && params.length === 2) {
+                agent.trophies = (parseInt(agent.trophies) || 0) + params[0];
+                updated = true;
+                await self.kv.zadd('leaderboard', { score: agent.trophies, member: agentId });
+              }
+              
+              if (sql.includes('trophies = trophies -')) {
+                agent.trophies = (parseInt(agent.trophies) || 0) - params[0];
+                updated = true;
+                await self.kv.zadd('leaderboard', { score: agent.trophies, member: agentId });
+              }
+              
+              if (updated) {
+                await self.kv.hset(`agent:${agentId}`, agent);
+              }
             }
+            
             return { changes: 1 };
           }
           else if (sql.includes('UPDATE bases')) {
             const agentId = params[params.length - 1];
-            const base = self.data.bases.find(b => b.agent_id === agentId);
+            const base = await self.kv.hgetall(`base:${agentId}`);
+            
             if (base) {
               // Extract building type from SQL dynamically
               const levelMatch = sql.match(/SET (\w+)_level = \?/);
               if (levelMatch) {
                 const buildingType = levelMatch[1];
                 base[`${buildingType}_level`] = params[0];
+                await self.kv.hset(`base:${agentId}`, base);
               }
-              self.saveData();
             }
+            
             return { changes: 1 };
           }
           else if (sql.includes('DELETE FROM upgrades')) {
             const upgradeId = params[0];
-            const index = self.data.upgrades.findIndex(u => u.id === upgradeId);
-            if (index !== -1) {
-              self.data.upgrades.splice(index, 1);
-              self.saveData();
+            const upgrade = await self.kv.hgetall(`upgrade:${upgradeId}`);
+            
+            if (upgrade && upgrade.agent_id) {
+              await self.kv.del(`upgrade:${upgradeId}`);
+              await self.kv.srem(`upgrades:agent:${upgrade.agent_id}`, upgradeId);
             }
+            
             return { changes: 1 };
           }
           
@@ -161,25 +203,30 @@ class ServerlessDB {
         }
       },
       
-      get(...params) {
+      async get(...params) {
         try {
           if (sql.includes('SELECT * FROM agents WHERE name')) {
-            return self.data.agents.find(a => a.name === params[0]);
+            const agentId = await self.kv.get(`agent:name:${params[0]}`);
+            if (!agentId) return null;
+            return await self.kv.hgetall(`agent:${agentId}`);
           }
           else if (sql.includes('SELECT * FROM agents WHERE id')) {
-            return self.data.agents.find(a => a.id === params[0]);
+            return await self.kv.hgetall(`agent:${params[0]}`);
           }
           else if (sql.includes('SELECT * FROM bases WHERE agent_id')) {
-            return self.data.bases.find(b => b.agent_id === params[0]);
+            return await self.kv.hgetall(`base:${params[0]}`);
           }
           else if (sql.includes('SELECT * FROM bases WHERE id')) {
-            return self.data.bases.find(b => b.id === params[0]);
+            return await self.kv.hgetall(`base:${params[0]}`);
           }
           else if (sql.includes('SELECT * FROM buildings WHERE id')) {
-            return self.data.buildings.find(b => b.id === params[0]);
+            return await self.kv.hgetall(`building:${params[0]}`);
           }
           else if (sql.includes('SELECT * FROM upgrades WHERE agent_id')) {
-            return self.data.upgrades.find(u => u.agent_id === params[0]);
+            const upgradeIds = await self.kv.smembers(`upgrades:agent:${params[0]}`);
+            if (!upgradeIds || upgradeIds.length === 0) return null;
+            // Return first upgrade
+            return await self.kv.hgetall(`upgrade:${upgradeIds[0]}`);
           }
           
           return null;
@@ -189,14 +236,32 @@ class ServerlessDB {
         }
       },
       
-      all(...params) {
+      async all(...params) {
         try {
-          if (sql.includes('SELECT * FROM upgrades WHERE agent_id')) {
-            return self.data.upgrades.filter(u => u.agent_id === params[0]);
+          if (sql.includes('SELECT * FROM upgrades WHERE agent_id') && sql.includes('completes_at <=')) {
+            // Get all upgrades for agent that are complete
+            const upgradeIds = await self.kv.smembers(`upgrades:agent:${params[0]}`);
+            if (!upgradeIds || upgradeIds.length === 0) return [];
+            
+            const upgrades = [];
+            for (const id of upgradeIds) {
+              const upgrade = await self.kv.hgetall(`upgrade:${id}`);
+              if (upgrade && parseInt(upgrade.completes_at) <= params[1]) {
+                upgrades.push(upgrade);
+              }
+            }
+            return upgrades;
           }
-          else if (sql.includes('completes_at <=')) {
-            // SELECT * FROM upgrades WHERE agent_id = ? AND completes_at <= ?
-            return self.data.upgrades.filter(u => u.agent_id === params[0] && u.completes_at <= params[1]);
+          else if (sql.includes('SELECT * FROM upgrades WHERE agent_id')) {
+            const upgradeIds = await self.kv.smembers(`upgrades:agent:${params[0]}`);
+            if (!upgradeIds || upgradeIds.length === 0) return [];
+            
+            const upgrades = [];
+            for (const id of upgradeIds) {
+              const upgrade = await self.kv.hgetall(`upgrade:${id}`);
+              if (upgrade) upgrades.push(upgrade);
+            }
+            return upgrades;
           }
           else if (sql.includes('SELECT') && sql.includes('FROM agents a') && sql.includes('JOIN bases b')) {
             // Find opponents query
@@ -204,44 +269,71 @@ class ServerlessDB {
             const minTrophies = params[1];
             const maxTrophies = params[2];
             
-            return self.data.agents
-              .filter(a => a.id !== myAgentId && a.trophies >= minTrophies && a.trophies <= maxTrophies)
-              .map(agent => {
-                const base = self.data.bases.find(b => b.agent_id === agent.id);
-                return { ...agent, ...base };
-              })
-              .slice(0, 5);
+            // Get agents by trophy range from leaderboard
+            const agentIds = await self.kv.zrangebyscore('leaderboard', minTrophies, maxTrophies);
+            
+            const opponents = [];
+            for (const agentId of agentIds) {
+              if (agentId === myAgentId) continue;
+              
+              const agent = await self.kv.hgetall(`agent:${agentId}`);
+              const base = await self.kv.hgetall(`base:${agentId}`);
+              
+              if (agent && base) {
+                opponents.push({ ...agent, ...base });
+              }
+              
+              if (opponents.length >= 5) break;
+            }
+            
+            return opponents;
           }
           else if (sql.includes('SELECT') && sql.includes('battles b') && sql.includes('JOIN agents')) {
             // Battle history
             const agentId = params[0];
-            return self.data.battles
-              .filter(b => b.attacker_id === agentId || b.defender_id === agentId)
-              .map(battle => {
-                const attacker = self.data.agents.find(a => a.id === battle.attacker_id);
-                const defender = self.data.agents.find(a => a.id === battle.defender_id);
-                return {
+            const battleIds = await self.kv.zrevrange(`battles:timeline:${agentId}`, 0, 19);
+            
+            if (!battleIds || battleIds.length === 0) return [];
+            
+            const battles = [];
+            for (const id of battleIds) {
+              const battle = await self.kv.hgetall(`battle:${id}`);
+              if (battle) {
+                const attacker = await self.kv.hgetall(`agent:${battle.attacker_id}`);
+                const defender = await self.kv.hgetall(`agent:${battle.defender_id}`);
+                
+                battles.push({
                   ...battle,
                   attacker_name: attacker?.name,
                   defender_name: defender?.name
-                };
-              })
-              .sort((a, b) => b.timestamp - a.timestamp)
-              .slice(0, 20);
+                });
+              }
+            }
+            
+            return battles;
           }
           else if (sql.includes('SELECT id, name, trophies')) {
             // Leaderboard
             const limit = params[0] || 50;
-            return self.data.agents
-              .map(a => ({
-                id: a.id,
-                name: a.name,
-                trophies: a.trophies,
-                league: a.league,
-                clan_id: a.clan_id
-              }))
-              .sort((a, b) => b.trophies - a.trophies)
-              .slice(0, limit);
+            const agentIds = await self.kv.zrevrange('leaderboard', 0, limit - 1);
+            
+            if (!agentIds || agentIds.length === 0) return [];
+            
+            const agents = [];
+            for (const agentId of agentIds) {
+              const agent = await self.kv.hgetall(`agent:${agentId}`);
+              if (agent) {
+                agents.push({
+                  id: agent.id,
+                  name: agent.name,
+                  trophies: parseInt(agent.trophies) || 0,
+                  league: agent.league,
+                  clan_id: agent.clan_id
+                });
+              }
+            }
+            
+            return agents;
           }
           
           return [];
