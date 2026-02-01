@@ -1735,3 +1735,35 @@ Building: npm error gyp ERR! not ok
 Building: npm error A complete log of this run can be found in: /vercel/.npm/_logs/2026-02-01T05_05_38_798Z-debug-0.log
 Building: Error: Command "npm install" exited with 1
 Error: Command "npm install" exited with 1
+Vercel CLI 50.9.6
+Retrieving project…
+Deploying randy-torres-projects/clash-of-clawds
+Uploading [--------------------] (0.0B/578B)
+Uploading [====================] (578.0B/578B)
+Inspect: https://vercel.com/randy-torres-projects/clash-of-clawds/GJ7JLhjt9HPZudVHLvtkiYhQVXBW [2s]
+Production: https://clash-of-clawds-llufmr13d-randy-torres-projects.vercel.app [2s]
+https://clash-of-clawds-llufmr13d-randy-torres-projects.vercel.appBuilding...
+Building: Running build in Washington, D.C., USA (East) – iad1
+Building: Build machine configuration: 2 cores, 8 GB
+Building: Retrieving list of deployment files...
+Building: Downloading 17 deployment files...
+Building: Downloading 17 deployment files...
+Building: Restored build cache from previous deployment (9nLkBGFzqoAqzFznrnvcmTksfHZK)
+Building: Running "vercel build"
+Building: Vercel CLI 50.9.6
+Building: WARN! Due to `builds` existing in your configuration file, the Build and Development Settings defined in your Project Settings will not apply. Learn More: https://vercel.link/unused-build-settings
+Building: Installing dependencies...
+Building: up to date in 607ms
+Building: 17 packages are looking for funding
+Building: run `npm fund` for details
+Building: Build Completed in /vercel/output [2s]
+Building: Deploying outputs...
+Building: Deployment completed
+Building: Creating build cache...
+Building: Created build cache: 693.387ms
+Building: Uploading build cache [784.00 kB]
+Building: Build cache uploaded: 154.701ms
+[2K[1A[2K[GProduction: https://clash-of-clawds-llufmr13d-randy-torres-projects.vercel.app [23s]
+Completing...
+Aliased: https://clash-of-clawds.vercel.app [23s]
+Due to `builds` existing in your configuration file, the Build and Development Settings defined in your Project Settings will not apply. Learn More: https://vercel.link/unused-build-settings
