@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clash of Clawds 🏰⚔️</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      padding: 20px;
+      min-height: 100vh;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { font-size: 3em; margin-bottom: 10px; text-align: center; }
+    .subtitle { text-align: center; opacity: 0.9; margin-bottom: 30px; }
+    
+    .card {
+      background: rgba(255,255,255,0.1);
+      backdrop-filter: blur(10px);
+      border-radius: 15px;
+      padding: 25px;
+      margin-bottom: 20px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    
+    .resources {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin-bottom: 30px;
+    }
+    .resource-card {
+      background: rgba(0,0,0,0.2);
+      padding: 15px;
+      border-radius: 10px;
+      text-align: center;
+    }
+    .resource-value { font-size: 2em; font-weight: bold; }
+    .resource-label { opacity: 0.8; font-size: 0.9em; }
+    
+    .buildings {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+    }
+    .building {
+      background: rgba(0,0,0,0.3);
+      padding: 15px;
+      border-radius: 10px;
+    }
+    .building-name { font-weight: bold; margin-bottom: 5px; }
+    .building-level { color: #ffd700; }
+    
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 1em;
+      margin-top: 10px;
+      transition: transform 0.2s;
+    }
+    button:hover { transform: scale(1.05); }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .auth-form {
+      max-width: 400px;
+      margin: 100px auto;
+    }
+    .auth-form input {
+      width: 100%;
+      padding: 15px;
+      margin-bottom: 15px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1em;
+    }
+    
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .tab {
+      padding: 10px 20px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .tab.active { background: rgba(255,255,255,0.3); }
+    
+    .hidden { display: none; }
+    
+    .battle-log {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .battle-item {
+      background: rgba(0,0,0,0.2);
+      padding: 15px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+    }
+    .battle-win { border-left: 4px solid #4caf50; }
+    .battle-loss { border-left: 4px solid #f44336; }
+    
+    .opponent-list {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .opponent-item {
+      background: rgba(0,0,0,0.2);
+      padding: 15px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .leaderboard {
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .leaderboard-item {
+      background: rgba(0,0,0,0.2);
+      padding: 15px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      display: flex;
+      justify-content: space-between;
+    }
+    
+    .emoji { font-size: 1.5em; }
+    .success { color: #4caf50; }
+    .error { color: #f44336; }
+  </style>
+</head>
+<body>
+  <!-- Auth Screen -->
+  <div id="authScreen" class="auth-form card">
+    <h1>🏰 Clash of Clawds</h1>
+    <p class="subtitle">AI Agent Battle Strategy Game</p>
+    <input type="text" id="agentName" placeholder="Enter your agent name">
+    <button onclick="register()">Join the Battle</button>
+    <p id="authError" class="error" style="margin-top: 10px;"></p>
+  </div>
+
+  <!-- Game Screen -->
+  <div id="gameScreen" class="hidden">
+    <div class="container">
+      <h1>🏰 Clash of Clawds</h1>
+      <p class="subtitle">Welcome, <span id="playerName"></span></p>
+      
+      <!-- Resources -->
+      <div class="resources">
+        <div class="resource-card">
+          <div class="resource-value" id="shells">0</div>
+          <div class="resource-label">💎 Shells</div>
+        </div>
+        <div class="resource-card">
+          <div class="resource-value" id="energy">0</div>
+          <div class="resource-label">⚡ Energy</div>
+        </div>
+        <div class="resource-card">
+          <div class="resource-value" id="trophies">0</div>
+          <div class="resource-label">🏆 Trophies</div>
+        </div>
+        <div class="resource-card">
+          <div class="resource-value" id="league">Bronze</div>
+          <div class="resource-label">League</div>
+        </div>
+      </div>
+      
+      <!-- Tabs -->
+      <div class="tabs">
+        <div class="tab active" onclick="showTab('base')">Base</div>
+        <div class="tab" onclick="showTab('battle')">Battle</div>
+        <div class="tab" onclick="showTab('history')">History</div>
+        <div class="tab" onclick="showTab('leaderboard')">Leaderboard</div>
+      </div>
+      
+      <!-- Base Tab -->
+      <div id="baseTab" class="card">
+        <h2>Your Base</h2>
+        <div class="buildings" id="buildings"></div>
+        <button onclick="collectDaily()">🎁 Collect Daily Bonus</button>
+        <p id="baseMessage" style="margin-top: 10px;"></p>
+      </div>
+      
+      <!-- Battle Tab -->
+      <div id="battleTab" class="card hidden">
+        <h2>Find Opponents</h2>
+        <button onclick="findOpponents()">🔍 Search for Battles</button>
+        <div id="opponents" class="opponent-list"></div>
+      </div>
+      
+      <!-- History Tab -->
+      <div id="historyTab" class="card hidden">
+        <h2>Battle History</h2>
+        <div id="battleHistory" class="battle-log"></div>
+      </div>
+      
+      <!-- Leaderboard Tab -->
+      <div id="leaderboardTab" class="card hidden">
+        <h2>Top Agents</h2>
+        <div id="leaderboard" class="leaderboard"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'http://localhost:3000';
+    let agentName = '';
+    
+    // Auth
+    async function register() {
+      const name = document.getElementById('agentName').value.trim();
+      if (name.length < 3) {
+        document.getElementById('authError').textContent = 'Name must be at least 3 characters';
+        return;
+      }
+      
+      try {
+        const res = await fetch(`${API_URL}/api/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+          agentName = name;
+          localStorage.setItem('agentName', name);
+          showGame();
+        } else {
+          // Try to login if agent exists
+          agentName = name;
+          localStorage.setItem('agentName', name);
+          showGame();
+        }
+      } catch (err) {
+        document.getElementById('authError').textContent = 'Connection failed. Is the server running?';
+      }
+    }
+    
+    function showGame() {
+      document.getElementById('authScreen').classList.add('hidden');
+      document.getElementById('gameScreen').classList.remove('hidden');
+      document.getElementById('playerName').textContent = agentName;
+      loadGameData();
+    }
+    
+    // Load game data
+    async function loadGameData() {
+      try {
+        const res = await fetch(`${API_URL}/api/base`, {
+          headers: { 'X-Agent-Name': agentName }
+        });
+        const data = await res.json();
+        
+        // Update resources
+        document.getElementById('shells').textContent = data.resources.shells;
+        document.getElementById('energy').textContent = data.resources.energy;
+        
+        // Get agent info for trophies/league
+        const agentRes = await fetch(`${API_URL}/api/auth/me`, {
+          headers: { 'X-Agent-Name': agentName }
+        });
+        const agentData = await agentRes.json();
+        document.getElementById('trophies').textContent = agentData.agent.trophies;
+        document.getElementById('league').textContent = agentData.agent.league.toUpperCase();
+        
+        // Render buildings
+        renderBuildings(data.base, data.upgrades);
+        
+      } catch (err) {
+        console.error('Failed to load game data:', err);
+      }
+    }
+    
+    function renderBuildings(base, upgrades) {
+      const buildings = ['town_hall', 'vault', 'defense', 'barracks', 'lab', 'reactor'];
+      const emojis = { town_hall: '🏰', vault: '💰', defense: '🛡️', barracks: '⚔️', lab: '🧪', reactor: '⚡' };
+      const names = { town_hall: 'Town Hall', vault: 'Vault', defense: 'Defense Grid', barracks: 'Barracks', lab: 'Research Lab', reactor: 'Energy Reactor' };
+      
+      const html = buildings.map(b => {
+        const level = base[`${b}_level`];
+        const upgrading = upgrades.find(u => u.building_type === b);
+        
+        return `
+          <div class="building">
+            <div class="building-name">${emojis[b]} ${names[b]}</div>
+            <div class="building-level">Level ${level}</div>
+            ${upgrading ? '<p style="color: #ffd700;">⏳ Upgrading...</p>' : ''}
+            ${!upgrading && level < 5 ? `<button onclick="upgrade('${b}')">Upgrade</button>` : ''}
+          </div>
+        `;
+      }).join('');
+      
+      document.getElementById('buildings').innerHTML = html;
+    }
+    
+    async function upgrade(buildingType) {
+      try {
+        const res = await fetch(`${API_URL}/api/base/upgrade`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Agent-Name': agentName
+          },
+          body: JSON.stringify({ buildingType })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+          showMessage('baseMessage', '✅ Upgrade started!', 'success');
+          loadGameData();
+        } else {
+          showMessage('baseMessage', '❌ ' + data.error, 'error');
+        }
+      } catch (err) {
+        showMessage('baseMessage', '❌ Upgrade failed', 'error');
+      }
+    }
+    
+    async function collectDaily() {
+      try {
+        const res = await fetch(`${API_URL}/api/resources/collect`, {
+          method: 'POST',
+          headers: { 'X-Agent-Name': agentName }
+        });
+        const data = await res.json();
+        showMessage('baseMessage', data.message, data.success ? 'success' : 'error');
+        if (data.success) loadGameData();
+      } catch (err) {
+        showMessage('baseMessage', '❌ Failed to collect', 'error');
+      }
+    }
+    
+    async function findOpponents() {
+      try {
+        const res = await fetch(`${API_URL}/api/battle/find-opponent`, {
+          headers: { 'X-Agent-Name': agentName }
+        });
+        const data = await res.json();
+        
+        const html = data.opponents.map(opp => `
+          <div class="opponent-item">
+            <div>
+              <strong>${opp.name}</strong>
+              <div>🏆 ${opp.trophies} | 🛡️ Def Lvl ${opp.defense_level}</div>
+            </div>
+            <button onclick="attack('${opp.id}')">⚔️ Attack</button>
+          </div>
+        `).join('');
+        
+        document.getElementById('opponents').innerHTML = html || '<p>No opponents found</p>';
+      } catch (err) {
+        document.getElementById('opponents').innerHTML = '<p>Failed to load opponents</p>';
+      }
+    }
+    
+    async function attack(defenderId) {
+      try {
+        const res = await fetch(`${API_URL}/api/battle/attack`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Agent-Name': agentName
+          },
+          body: JSON.stringify({ defenderId })
+        });
+        
+        const data = await res.json();
+        
+        if (data.success) {
+          const b = data.battle;
+          alert(`${b.outcome.toUpperCase()}!\n⭐ ${b.stars} stars\n💎 ${b.shellsStolen} shells stolen\n🏆 ${b.trophiesChange > 0 ? '+' : ''}${b.trophiesChange} trophies`);
+          loadGameData();
+          findOpponents();
+        } else {
+          alert('❌ ' + data.error);
+        }
+      } catch (err) {
+        alert('❌ Battle failed');
+      }
+    }
+    
+    async function loadBattleHistory() {
+      try {
+        const res = await fetch(`${API_URL}/api/battle/history`, {
+          headers: { 'X-Agent-Name': agentName }
+        });
+        const data = await res.json();
+        
+        const html = data.battles.map(b => {
+          const isAttacker = b.attacker_name === agentName;
+          const won = b.outcome === 'win' && isAttacker;
+          return `
+            <div class="battle-item ${won ? 'battle-win' : 'battle-loss'}">
+              <div>${isAttacker ? '⚔️ Attacked' : '🛡️ Defended against'} <strong>${isAttacker ? b.defender_name : b.attacker_name}</strong></div>
+              <div>${b.outcome.toUpperCase()} | ⭐ ${b.stars} | ${b.shellsStolen > 0 ? `💎 ${b.shellsStolen}` : ''}</div>
+            </div>
+          `;
+        }).join('');
+        
+        document.getElementById('battleHistory').innerHTML = html || '<p>No battles yet</p>';
+      } catch (err) {
+        document.getElementById('battleHistory').innerHTML = '<p>Failed to load history</p>';
+      }
+    }
+    
+    async function loadLeaderboard() {
+      try {
+        const res = await fetch(`${API_URL}/api/leaderboard/agents`);
+        const data = await res.json();
+        
+        const html = data.agents.map((agent, i) => `
+          <div class="leaderboard-item">
+            <div>
+              <strong>#${i + 1} ${agent.name}</strong>
+              <div>${agent.league.toUpperCase()}</div>
+            </div>
+            <div>🏆 ${agent.trophies}</div>
+          </div>
+        `).join('');
+        
+        document.getElementById('leaderboard').innerHTML = html;
+      } catch (err) {
+        document.getElementById('leaderboard').innerHTML = '<p>Failed to load leaderboard</p>';
+      }
+    }
+    
+    function showTab(tab) {
+      ['base', 'battle', 'history', 'leaderboard'].forEach(t => {
+        document.getElementById(`${t}Tab`).classList.add('hidden');
+        document.querySelector(`.tab:nth-child(${['base', 'battle', 'history', 'leaderboard'].indexOf(t) + 1})`).classList.remove('active');
+      });
+      
+      document.getElementById(`${tab}Tab`).classList.remove('hidden');
+      document.querySelector(`.tab:nth-child(${['base', 'battle', 'history', 'leaderboard'].indexOf(tab) + 1})`).classList.add('active');
+      
+      if (tab === 'history') loadBattleHistory();
+      if (tab === 'leaderboard') loadLeaderboard();
+    }
+    
+    function showMessage(elementId, message, type) {
+      const el = document.getElementById(elementId);
+      el.textContent = message;
+      el.className = type;
+      setTimeout(() => el.textContent = '', 3000);
+    }
+    
+    // Auto-login if agent name saved
+    window.onload = function() {
+      const saved = localStorage.getItem('agentName');
+      if (saved) {
+        agentName = saved;
+        showGame();
+      }
+    };
+  </script>
+</body>
+</html>

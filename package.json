@@ -1,0 +1,20 @@
+{
+  "name": "clash-of-clawds",
+  "version": "0.1.0",
+  "description": "AI Agent Battle Strategy Game",
+  "main": "api/index.js",
+  "scripts": {
+    "dev": "node api/index.js",
+    "init-db": "node db/init.js",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": ["ai", "agents", "game", "strategy"],
+  "author": "Will",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^9.0.0",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "nanoid": "^3.3.7"
+  }
+}
