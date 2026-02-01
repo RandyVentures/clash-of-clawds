@@ -5,6 +5,7 @@ const path = require('path');
 const { nanoid } = require('nanoid');
 const game = require('../lib/game');
 const ServerlessDB = require('../db/serverless-db');
+const { logActivity } = require('./activity');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -61,6 +62,12 @@ app.post('/api/auth/register', async (req, res) => {
     
     const agent = await db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId);
     const base = await db.prepare('SELECT * FROM bases WHERE agent_id = ?').get(agentId);
+    
+    // Log registration activity
+    await logActivity('registration', {
+      agentName: name,
+      message: `${name} joined the battle!`
+    });
     
     res.json({
       success: true,
@@ -157,6 +164,23 @@ app.post('/api/base/upgrade', authMiddleware, async (req, res) => {
       now,
       now + (upgradeCost.time * 1000)
     );
+    
+    // Log upgrade activity
+    const buildingNames = {
+      town_hall: 'Town Hall',
+      vault: 'Vault',
+      defense: 'Defense Grid',
+      barracks: 'Barracks',
+      lab: 'Research Lab',
+      reactor: 'Energy Reactor'
+    };
+    
+    await logActivity('upgrade', {
+      agentName: req.agent.name,
+      building: buildingNames[buildingType] || buildingType,
+      level: currentLevel + 1,
+      message: `${req.agent.name} upgraded ${buildingNames[buildingType]} to level ${currentLevel + 1}`
+    });
     
     res.json({
       success: true,
@@ -287,6 +311,42 @@ app.post('/api/battle/attack', authMiddleware, async (req, res) => {
       now
     );
     
+    // Track stats for leaderboard
+    if (db.redis) {
+      // Add to global battles timeline
+      await db.redis.zadd('battles:global', now, battle.id);
+      
+      // Track raider stats
+      if (battle.shellsStolen > 0) {
+        await db.redis.zincrby('raiders:alltime', battle.shellsStolen, req.agent.id);
+      }
+      
+      // Track times attacked
+      await db.redis.zincrby('attacked:alltime', 1, defenderId);
+      
+      // Track wins
+      if (battle.outcome === 'win') {
+        await db.redis.incr(`stats:${req.agent.id}:wins`);
+      }
+    }
+    
+    // Log battle activity
+    const outcomeEmoji = battle.outcome === 'win' ? '⚔️✅' : battle.outcome === 'loss' ? '⚔️❌' : '⚔️➖';
+    const message = battle.outcome === 'win'
+      ? `${req.agent.name} attacked ${defender.name} - Victory! Stole ${battle.shellsStolen} 💎 shells (${battle.stars}⭐)`
+      : battle.outcome === 'loss'
+      ? `${req.agent.name} attacked ${defender.name} - Defeat!`
+      : `${req.agent.name} attacked ${defender.name} - Draw`;
+    
+    await logActivity('battle', {
+      attackerName: req.agent.name,
+      defenderName: defender.name,
+      outcome: battle.outcome,
+      stars: battle.stars,
+      shellsStolen: battle.shellsStolen,
+      message
+    });
+    
     res.json({
       success: true,
       battle: {
@@ -359,6 +419,58 @@ app.post('/api/resources/collect', authMiddleware, async (req, res) => {
     message: 'Daily bonus already collected',
     nextCollect: lastCollect + (24 * 60 * 60 * 1000)
   });
+});
+
+// ===== SPECTATOR ENDPOINTS =====
+
+// Activity feed
+const activityHandler = require('./activity');
+app.get('/api/activity/recent', activityHandler);
+
+// Stats dashboard
+const statsHandler = require('./stats');
+app.get('/api/stats/overview', statsHandler);
+
+// Enhanced battle details
+app.get('/api/battle/details/:battleId', async (req, res) => {
+  const { battleId } = req.params;
+  
+  if (!db.redis) {
+    return res.status(503).json({ error: 'Redis not available' });
+  }
+  
+  try {
+    const battle = await db.redis.hgetall(`battle:${battleId}`);
+    if (!battle || !battle.id) {
+      return res.status(404).json({ error: 'Battle not found' });
+    }
+    
+    const attacker = await db.redis.hgetall(`agent:${battle.attacker_id}`);
+    const defender = await db.redis.hgetall(`agent:${battle.defender_id}`);
+    const attackerBase = await db.redis.hgetall(`base:${battle.attacker_id}`);
+    const defenderBase = await db.redis.hgetall(`base:${battle.defender_id}`);
+    
+    res.json({
+      battle: {
+        ...battle,
+        attacker_name: attacker?.name,
+        defender_name: defender?.name
+      },
+      attacker: {
+        name: attacker?.name,
+        trophies: parseInt(attacker?.trophies) || 0,
+        barracks_level: parseInt(attackerBase?.barracks_level) || 1
+      },
+      defender: {
+        name: defender?.name,
+        trophies: parseInt(defender?.trophies) || 0,
+        defense_level: parseInt(defenderBase?.defense_level) || 1,
+        town_hall_level: parseInt(defenderBase?.town_hall_level) || 1
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load battle details' });
+  }
 });
 
 // Health check

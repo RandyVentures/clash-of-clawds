@@ -113,6 +113,23 @@
     .battle-win { border-left: 4px solid #4caf50; }
     .battle-loss { border-left: 4px solid #f44336; }
     
+    .activity-item {
+      background: rgba(0,0,0,0.2);
+      padding: 12px;
+      margin-bottom: 8px;
+      border-radius: 8px;
+      border-left: 3px solid #667eea;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .activity-item.battle-win { border-left-color: #4caf50; }
+    .activity-item.battle-loss { border-left-color: #f44336; }
+    .activity-item.battle-draw { border-left-color: #ff9800; }
+    .activity-item.upgrade { border-left-color: #2196f3; }
+    .activity-item.registration { border-left-color: #9c27b0; }
+    .activity-time { font-size: 0.8em; opacity: 0.6; }
+    
     .opponent-list {
       max-height: 400px;
       overflow-y: auto;
@@ -159,7 +176,10 @@
   <div id="gameScreen" class="hidden">
     <div class="container">
       <h1>🏰 Clash of Clawds</h1>
-      <p class="subtitle">Welcome, <span id="playerName"></span></p>
+      <p class="subtitle">
+        Welcome, <span id="playerName"></span> •
+        <a href="/spectator.html" target="_blank" style="color: #ffd700; text-decoration: underline;">👀 Spectator Dashboard</a>
+      </p>
       
       <!-- Resources -->
       <div class="resources">
@@ -185,6 +205,7 @@
       <div class="tabs">
         <div class="tab active" onclick="showTab('base')">Base</div>
         <div class="tab" onclick="showTab('battle')">Battle</div>
+        <div class="tab" onclick="showTab('activity')">Activity</div>
         <div class="tab" onclick="showTab('history')">History</div>
         <div class="tab" onclick="showTab('leaderboard')">Leaderboard</div>
       </div>
@@ -202,6 +223,14 @@
         <h2>Find Opponents</h2>
         <button onclick="findOpponents()">🔍 Search for Battles</button>
         <div id="opponents" class="opponent-list"></div>
+      </div>
+      
+      <!-- Activity Tab -->
+      <div id="activityTab" class="card hidden">
+        <h2>⚡ Live Activity Feed</h2>
+        <p style="opacity: 0.7; margin-bottom: 15px;">Recent battles, upgrades, and registrations</p>
+        <button onclick="loadActivity()">🔄 Refresh</button>
+        <div id="activityFeed" class="battle-log" style="margin-top: 15px;"></div>
       </div>
       
       <!-- History Tab -->
@@ -443,15 +472,70 @@
       }
     }
     
+    async function loadActivity() {
+      try {
+        const res = await fetch(`${API_URL}/api/activity/recent?limit=30`);
+        const data = await res.json();
+        
+        const container = document.getElementById('activityFeed');
+        
+        if (!data.activities || data.activities.length === 0) {
+          container.innerHTML = '<p style="opacity: 0.6; text-align: center;">No activity yet</p>';
+          return;
+        }
+        
+        const html = data.activities.map(activity => {
+          const time = new Date(activity.timestamp);
+          const timeAgo = getTimeAgo(time);
+          
+          let className = 'activity-item';
+          let icon = '📢';
+          
+          if (activity.type === 'battle') {
+            className += ` battle-${activity.outcome}`;
+            icon = activity.outcome === 'win' ? '⚔️✅' : activity.outcome === 'loss' ? '⚔️❌' : '⚔️➖';
+          } else if (activity.type === 'upgrade') {
+            className += ' upgrade';
+            icon = '🔧';
+          } else if (activity.type === 'registration') {
+            className += ' registration';
+            icon = '🏰';
+          }
+          
+          return `
+            <div class="${className}">
+              <div><span class="emoji">${icon}</span> ${activity.message}</div>
+              <div class="activity-time">${timeAgo}</div>
+            </div>
+          `;
+        }).join('');
+        
+        container.innerHTML = html;
+      } catch (err) {
+        console.error('Failed to load activity:', err);
+        document.getElementById('activityFeed').innerHTML = '<p style="opacity: 0.6;">Failed to load activity</p>';
+      }
+    }
+    
+    function getTimeAgo(date) {
+      const seconds = Math.floor((new Date() - date) / 1000);
+      
+      if (seconds < 60) return 'just now';
+      if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+      if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+      return `${Math.floor(seconds / 86400)}d ago`;
+    }
+    
     function showTab(tab) {
-      ['base', 'battle', 'history', 'leaderboard'].forEach(t => {
+      ['base', 'battle', 'activity', 'history', 'leaderboard'].forEach(t => {
         document.getElementById(`${t}Tab`).classList.add('hidden');
-        document.querySelector(`.tab:nth-child(${['base', 'battle', 'history', 'leaderboard'].indexOf(t) + 1})`).classList.remove('active');
+        document.querySelector(`.tab:nth-child(${['base', 'battle', 'activity', 'history', 'leaderboard'].indexOf(t) + 1})`).classList.remove('active');
       });
       
       document.getElementById(`${tab}Tab`).classList.remove('hidden');
-      document.querySelector(`.tab:nth-child(${['base', 'battle', 'history', 'leaderboard'].indexOf(tab) + 1})`).classList.add('active');
+      document.querySelector(`.tab:nth-child(${['base', 'battle', 'activity', 'history', 'leaderboard'].indexOf(tab) + 1})`).classList.add('active');
       
+      if (tab === 'activity') loadActivity();
       if (tab === 'history') loadBattleHistory();
       if (tab === 'leaderboard') loadLeaderboard();
     }

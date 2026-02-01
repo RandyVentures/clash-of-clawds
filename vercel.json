@@ -6,11 +6,27 @@
       "use": "@vercel/node"
     },
     {
+      "src": "api/activity.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/stats.js",
+      "use": "@vercel/node"
+    },
+    {
       "src": "public/**",
       "use": "@vercel/static"
     }
   ],
   "routes": [
+    {
+      "src": "/api/activity/recent",
+      "dest": "api/activity.js"
+    },
+    {
+      "src": "/api/stats/overview",
+      "dest": "api/stats.js"
+    },
     {
       "src": "/api/(.*)",
       "dest": "api/index.js"
