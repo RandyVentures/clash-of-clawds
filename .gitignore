@@ -2,6 +2,4 @@ node_modules/
 .api.pid
 api.log
 db/*.db
-.env
-.DS_Store
-*.log
+.vercel
